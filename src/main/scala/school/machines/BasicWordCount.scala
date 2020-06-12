@@ -10,7 +10,7 @@ import org.apache.beam.sdk.transforms.DoFn.ProcessElement
 import org.apache.beam.sdk.transforms._
 import org.apache.beam.sdk.values.KV
 
-object WordCount {
+object BasicWordCount {
   def main(args: Array[String]): Unit = {
 
     val options = PipelineOptionsFactory
