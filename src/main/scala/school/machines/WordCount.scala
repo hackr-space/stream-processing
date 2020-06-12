@@ -1,0 +1,78 @@
+package school.machines
+
+import java.lang
+
+import org.apache.beam.sdk.Pipeline
+import org.apache.beam.sdk.io.TextIO
+import org.apache.beam.sdk.io.kafka.KafkaIO
+import org.apache.beam.sdk.options.Validation.Required
+import org.apache.beam.sdk.options.{Default, Description, PipelineOptions, PipelineOptionsFactory}
+import org.apache.beam.sdk.transforms.DoFn.ProcessElement
+import org.apache.beam.sdk.transforms._
+import org.apache.beam.sdk.transforms.windowing.{FixedWindows, Window}
+import org.apache.beam.sdk.values.KV
+import org.apache.kafka.common.serialization.{LongDeserializer, StringDeserializer}
+import org.joda.time.Duration
+
+object WordCount {
+  def main(args: Array[String]): Unit = {
+
+    val options = PipelineOptionsFactory.fromArgs(args: _*)
+      .withValidation()
+      .as(classOf[WordCountOptions])
+
+    val pipeline = Pipeline.create()
+
+    pipeline.apply(
+      KafkaIO.read[lang.Long, String]()
+        .withBootstrapServers("localhost:9092")
+        .withTopic("test-topic")
+        .withKeyDeserializer(classOf[LongDeserializer])
+        .withValueDeserializer(classOf[StringDeserializer])
+        .withoutMetadata()
+      )
+      .apply(Values.create())
+      .apply(Window.into(FixedWindows.of(Duration.standardSeconds(1))))
+      .apply(ParDo.of(new ExtractWords))
+      .apply(Count.perElement())
+      .apply(MapElements.via(new FormatResult))
+      .apply("WriteWords", TextIO.write().to(options.getOutput).withWindowedWrites().withNumShards(1))
+
+    pipeline.run()
+  }
+
+  /**
+   * Pipeline Options
+   */
+  trait WordCountOptions extends PipelineOptions {
+
+    @Description("Path of the file to read from")
+    @Default.String("gs://apache-beam-samples/shakespeare/kinglear.txt")
+    def getInputFile: String
+    def setInputFile(path: String)
+
+    @Description("Path of the file to write to")
+    @Required
+    def getOutput: String
+    def setOutput(path: String)
+
+  }
+
+  /**
+   * User Defined Function (UDF)
+   */
+  class FormatResult extends SimpleFunction[KV[String, java.lang.Long], String] {
+    override def apply(input: KV[String, lang.Long]): String = {
+      input.getKey + ": " + input.getValue
+    }
+  }
+
+  class ExtractWords extends  DoFn[String, String] {
+    @ProcessElement
+    def processElement(c: ProcessContext): Unit = {
+      for (word <- c.element().split("[^\\p{L}]+")) yield  {
+        if (!word.isEmpty) c.output(word)
+      }
+    }
+  }
+}
